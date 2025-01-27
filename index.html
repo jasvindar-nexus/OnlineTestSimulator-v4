@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MCQ Test Simulator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #eef2f3;
+      color: #333;
+    }
+    header, footer {
+      background-color: #007BFF;
+      color: white;
+      text-align: center;
+      padding: 20px 0;
+    }
+    .container {
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .btn {
+      display: inline-block;
+      margin: 10px 5px;
+      padding: 10px 20px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 1em;
+    }
+    .btn:hover { background-color: #218838; }
+    .btn-secondary { background-color: #007BFF; }
+    .btn-secondary:hover { background-color: #0056b3; }
+    .hidden { display: none; }
+    .error { color: red; margin-top: 10px; font-size: 0.9em; }
+    .timer { font-size: 1.2em; font-weight: bold; text-align: center; margin-bottom: 20px; }
+    .options label {
+      display: block;
+      margin-bottom: 8px;
+      cursor: pointer;
+      font-size: 1em;
+    }
+    .question-tabs {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .tab {
+      width: 40px;
+      height: 40px;
+      line-height: 40px;
+      text-align: center;
+      border-radius: 50%;
+      background-color: #ccc;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .tab.answered { background-color: #28a745; }
+    .tab.not-answered { background-color: #dc3545; }
+    .tab:hover { opacity: 0.8; }
+    .results .correct { color: green; font-weight: bold; }
+    .results .wrong { color: red; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>MCQ Test Simulator</h1>
+  </header>
+
+  <div class="container" id="upload-container">
+    <h2>Upload File for MCQs (.txt)</h2>
+    <label for="file-upload" class="btn">Upload File</label>
+    <input type="file" id="file-upload" accept=".txt" style="display: none;" />
+    <p id="upload-error" class="error hidden">Invalid file format or structure.</p>
+  </div>
+
+  <div class="container hidden" id="quiz-container">
+    <div class="timer" id="timer"></div>
+    <div class="question-tabs" id="question-tabs"></div>
+    <div id="quiz"></div>
+    <div class="navigation">
+      <button class="btn btn-secondary" id="prev-btn">Previous</button>
+      <button class="btn btn-secondary" id="next-btn">Next</button>
+    </div>
+    <button class="btn" id="submit-btn">Submit</button>
+    <p id="validation-error" class="error hidden">Please answer all questions before submitting.</p>
+  </div>
+
+  <div class="container hidden" id="result-container">
+    <h2>Your Results</h2>
+    <div id="results" class="results"></div>
+    <button class="btn" id="restart-btn">Restart</button>
+  </div>
+
+  <footer>
+    <p>&copy; 2025 MCQ Test Simulator</p>
+  </footer>
+
+  <script>
+    const state = {
+      questions: [],
+      answers: [],
+      currentQuestionIndex: 0,
+    };
+
+    const elements = {
+      uploadContainer: document.getElementById("upload-container"),
+      quizContainer: document.getElementById("quiz-container"),
+      resultContainer: document.getElementById("result-container"),
+      fileUpload: document.getElementById("file-upload"),
+      uploadError: document.getElementById("upload-error"),
+      quiz: document.getElementById("quiz"),
+      questionTabs: document.getElementById("question-tabs"),
+      prevBtn: document.getElementById("prev-btn"),
+      nextBtn: document.getElementById("next-btn"),
+      submitBtn: document.getElementById("submit-btn"),
+      results: document.getElementById("results"),
+      restartBtn: document.getElementById("restart-btn"),
+    };
+
+    elements.fileUpload.addEventListener("change", handleFileUpload);
+    elements.prevBtn.addEventListener("click", navigatePrevious);
+    elements.nextBtn.addEventListener("click", navigateNext);
+    elements.submitBtn.addEventListener("click", submitQuiz);
+    elements.restartBtn.addEventListener("click", restartQuiz);
+
+    function handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const extension = file.name.split(".").pop().toLowerCase();
+      if (extension === "txt") {
+        processTxtFile(file);
+      } else {
+        showError("Unsupported file type. Please upload a .txt file.");
+      }
+    }
+
+    function processTxtFile(file) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const content = e.target.result;
+        try {
+          const questions = validateFileContent(content);
+          initializeQuiz(questions);
+        } catch (error) {
+          showError(error.message);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function validateFileContent(content) {
+      const lines = content.split("\n").map(line => line.trim());
+      const questions = [];
+      let currentQuestion = null;
+
+      lines.forEach((line, index) => {
+        if (!line) return;
+        const questionMatch = line.match(/^\d+\.\s+(.+)/);
+        const optionMatch = line.match(/^([A-Z])\.?\s+(.+)/);
+        const answerMatch = line.match(/^Answer:\s*([A-Z])/i);
+
+        if (questionMatch) {
+          if (currentQuestion) questions.push(currentQuestion);
+          currentQuestion = { question: questionMatch[1], options: [], answer: null };
+        } else if (optionMatch) {
+          currentQuestion?.options.push({ prefix: optionMatch[1], text: optionMatch[2] });
+        } else if (answerMatch) {
+          const correctAnswer = answerMatch[1].toUpperCase();
+          const answerIndex = currentQuestion?.options.findIndex(opt => opt.prefix === correctAnswer);
+          if (answerIndex >= 0) {
+            currentQuestion.answer = answerIndex;
+          } else {
+            throw new Error(`Invalid answer key "${correctAnswer}" at line ${index + 1}`);
+          }
+        } else {
+          throw new Error(`Unexpected line format at line ${index + 1}: "${line}"`);
+        }
+      });
+
+      if (currentQuestion) questions.push(currentQuestion);
+
+      if (questions.every(q => q.question && q.options.length >= 2 && q.answer !== null)) {
+        return questions.map(q => ({
+          question: q.question,
+          options: q.options.map(opt => `${opt.prefix}. ${opt.text}`),
+          answer: q.answer,
+        }));
+      } else {
+        throw new Error("File contains invalid or incomplete questions.");
+      }
+    }
+
+    function initializeQuiz(questions) {
+      state.questions = questions;
+      state.answers = Array(questions.length).fill(null);
+      showQuiz();
+    }
+
+    function showQuiz() {
+      elements.uploadContainer.classList.add("hidden");
+      elements.quizContainer.classList.remove("hidden");
+      renderTabs();
+      renderQuestion();
+    }
+
+    function renderTabs() {
+      elements.questionTabs.innerHTML = state.questions
+        .map((_, i) =>
+          `<div class="tab ${state.answers[i] === null ? 'not-answered' : 'answered'}" data-index="${i}">
+            ${i + 1}
+          </div>`
+        ).join("");
+      document.querySelectorAll(".tab").forEach(tab => {
+        tab.addEventListener("click", (e) => {
+          storeAnswer();
+          state.currentQuestionIndex = parseInt(e.target.dataset.index, 10);
+          renderQuestion();
+        });
+      });
+    }
+
+    function renderQuestion() {
+      const question = state.questions[state.currentQuestionIndex];
+      elements.quiz.innerHTML = `
+        <h3>${state.currentQuestionIndex + 1}. ${question.question}</h3>
+        <div class="options">
+          ${question.options.map((opt, i) =>
+            `<label>
+              <input type="radio" name="question${state.currentQuestionIndex}" value="${i}" 
+              ${state.answers[state.currentQuestionIndex] === i ? "checked" : ""} /> ${opt}
+            </label>`).join("")}
+        </div>`;
+      elements.prevBtn.disabled = state.currentQuestionIndex === 0;
+      elements.nextBtn.disabled = state.currentQuestionIndex === state.questions.length - 1;
+      renderTabs();
+    }
+
+    function navigatePrevious() {
+      storeAnswer();
+      if (state.currentQuestionIndex > 0) {
+        state.currentQuestionIndex--;
+        renderQuestion();
+      }
+    }
+
+    function navigateNext() {
+      storeAnswer();
+      if (state.currentQuestionIndex < state.questions.length - 1) {
+        state.currentQuestionIndex++;
+        renderQuestion();
+      }
+    }
+
+    function storeAnswer() {
+      const selected = document.querySelector(`input[name="question${state.currentQuestionIndex}"]:checked`);
+      if (selected) {
+        state.answers[state.currentQuestionIndex] = parseInt(selected.value, 10);
+      }
+    }
+
+    function submitQuiz() {
+      storeAnswer();
+      if (state.answers.includes(null)) {
+        showError("Please answer all questions before submitting.");
+        return;
+      }
+      elements.quizContainer.classList.add("hidden");
+      elements.resultContainer.classList.remove("hidden");
+      displayResults();
+    }
+
+    function displayResults() {
+      const score = state.questions.reduce((acc, q, i) => acc + (q.answer === state.answers[i] ? 1 : 0), 0);
+      elements.results.innerHTML = `
+        <p>Your Score: ${score} / ${state.questions.length}</p>
+        ${state.questions.map((q, i) => `
+          <div>
+            <h4>${i + 1}. ${q.question}</h4>
+            <p>Your Answer: <span class="${state.answers[i] === q.answer ? 'correct' : 'wrong'}">${q.options[state.answers[i]] || "Not Answered"}</span></p>
+            <p>Correct Answer: <span class="correct">${q.options[q.answer]}</span></p>
+          </div>`).join("")}`;
+    }
+
+    function restartQuiz() {
+      state.questions = [];
+      state.answers = [];
+      state.currentQuestionIndex = 0;
+      elements.resultContainer.classList.add("hidden");
+      elements.uploadContainer.classList.remove("hidden");
+    }
+
+    function showError(message) {
+      elements.uploadError.textContent = message;
+      elements.uploadError.classList.remove("hidden");
+      setTimeout(() => elements.uploadError.classList.add("hidden"), 5000);
+    }
+  </script>
+</body>
+</html>
